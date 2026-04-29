@@ -1,0 +1,3 @@
+worker/.venv
+worker/.env
+frontend/.env
