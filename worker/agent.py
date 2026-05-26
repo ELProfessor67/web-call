@@ -14,10 +14,21 @@ from livekit.agents import (
     RoomInputOptions,
 )
 from livekit.plugins import openai, deepgram, elevenlabs, silero
+from stt import FasterWhisperSTT
+from tts import PiperTTS
 
 load_dotenv()
 logger = logging.getLogger("outbound-agent")
 logger.setLevel(logging.INFO)
+
+# Local pipeline settings
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "medium")
+WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cuda")
+PIPER_MODEL_PATH = os.getenv("PIPER_MODEL_PATH", "")
+PIPER_USE_CUDA = os.getenv("PIPER_USE_CUDA", "false").lower() == "true"
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+
 
 
 def prewarm(proc: JobProcess):
@@ -34,11 +45,11 @@ async def entrypoint(ctx: JobContext):
     # Default metadata
     call_context = {
         "prompt": "You are a helpful assistant.",
-        "provider": "groq",
-        "model": "llama-3.3-70b-versatile",
-        "stt_model": "nova-2-general",
+        "provider": "ollama",
+        "model": "llama3.1:8b",
+        "stt_model": "medium",
         "language": "hi",
-        "voice": "cgSgspJ2msm6clMCkdW9",  # Jessica
+        "voice": "/voices/pratham/medium/hi_IN-pratham-medium.onnx",
     }
 
     try:
@@ -53,39 +64,34 @@ async def entrypoint(ctx: JobContext):
         logger.error(f"Error parsing participant metadata: {e}")
 
     # ── LLM setup ────────────────────────────────────────────────────────────
-    provider = call_context.get("provider", "groq")
-    model_name = call_context.get("model", "llama-3.3-70b-versatile")
+    provider = call_context.get("provider", "ollama")
+    model_name = call_context.get("model", "llama3.1:8b")
 
-    if provider == "groq":
-        llm_plugin = openai.LLM(
+    if provider == "ollama":
+        llm_plugin = openai.LLM.with_ollama(
             model=model_name,
-            base_url="https://api.groq.com/openai/v1",
-            api_key=os.environ.get("GROQ_API_KEY"),
-        )
-    elif provider == "openrouter":
-        llm_plugin = openai.LLM(
-            model=model_name,
-            base_url="https://openrouter.ai/api/v1",
-            api_key=os.environ.get("OPENROUTER_API_KEY"),
+            base_url=OLLAMA_BASE_URL,
         )
     else:
-        llm_plugin = openai.LLM(model=model_name)
+        llm_plugin = openai.LLM.with_ollama(
+            model="llama3.1:8b",
+            base_url=OLLAMA_BASE_URL,
+        )
 
     # ── STT setup ─────────────────────────────────────────────────────────────
-    print(call_context,"call_context")
-    stt_model = call_context.get("stt_model", "nova-2-general")
-    language = call_context.get("language", "hi")
-    stt_plugin = deepgram.STT(model=stt_model, language=language)
+    
+    stt_plugin = FasterWhisperSTT(
+            model_size=call_context.get("stt_model"),
+            device=WHISPER_DEVICE,
+            compute_type="float16" if WHISPER_DEVICE == "cuda" else "int8",
+        )
 
     # ── TTS setup ─────────────────────────────────────────────────────────────
-    voice_id = call_context.get("voice", "cgSgspJ2msm6clMCkdW9")
-    tts_plugin = elevenlabs.TTS(
-        voice_id=voice_id,
-        voice_settings=elevenlabs.VoiceSettings(
-            stability=0.5,
-            similarity_boost=0.75,
-        ),
-    )   
+    voice_path = call_context.get("voice", "/voices/pratham/medium/hi_IN-pratham-medium.onnx")
+    tts_plugin = PiperTTS(
+        model_path=voice_path,
+        use_cuda=PIPER_USE_CUDA,
+    )
 
     # ── Agent definition ──────────────────────────────────────────────────────
     class OutboundAgent(Agent):
