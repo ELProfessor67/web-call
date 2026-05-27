@@ -139,7 +139,6 @@ class _ParlerEngine:
         self.sample_rate = int(self.model.config.sampling_rate)
         self._gen_lock = threading.Lock()
         logger.info(f"Parler ready — sample_rate={self.sample_rate}, dev={self.device}")
-        self._warmup()
 
     @classmethod
     def get(cls) -> "_ParlerEngine":

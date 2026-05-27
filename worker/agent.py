@@ -138,5 +138,6 @@ if __name__ == "__main__":
         WorkerOptions(
             entrypoint_fnc=entrypoint,
             prewarm_fnc=prewarm,
+            initialize_process_timeout=60,  # Parler model load needs ~6-8s
         )
     )
