@@ -155,8 +155,14 @@ class _VeenaEngine:
 
     @torch.no_grad()
     def synth_part(self, text: str, voice: str,
-                   temperature: float = 0.4, top_p: float = 0.9) -> bytes:
-        """Synthesize ONE short part fully -> int16 PCM bytes (clean audio)."""
+                   temperature: float = 0.3, top_p: float = 0.9) -> bytes:
+        """Synthesize ONE short part fully -> int16 PCM bytes (clean audio).
+
+        We set the SAME seed before every part so the speaker's voice stays
+        consistent across parts. Without this, do_sample=True makes each part
+        sample slightly differently -> the voice seems to drift ("kabhi kuch
+        kabhi kuch").
+        """
         if voice not in VOICES:
             voice = DEFAULT_VOICE
 
@@ -168,6 +174,9 @@ class _VeenaEngine:
         max_tokens = min(int(len(text) * 1.3) * 7 + 21, 700)
 
         with self._gen_lock:
+            torch.manual_seed(1234)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(1234)
             output = self.model.generate(
                 input_ids, max_new_tokens=max_tokens, do_sample=True,
                 temperature=temperature, top_p=top_p, repetition_penalty=1.05,
