@@ -49,7 +49,7 @@ async def entrypoint(ctx: JobContext):
         "model": "qwen3.5:9b",
         "stt_model": "medium",
         "language": "hi",
-        "voice": "/voices/pratham/medium/hi_IN-pratham-medium.onnx",
+        "voice": "/root/web-call/worker/voices/pratham/medium/hi_IN-pratham-medium.onnx",
     }
 
     try:
@@ -127,7 +127,6 @@ if __name__ == "__main__":
     cli.run_app(
         WorkerOptions(
             entrypoint_fnc=entrypoint,
-            prewarm_fnc=prewarm,
-            memory_warn_mb=1500,  # Whisper medium + Piper uses ~1GB, raise threshold
+            prewarm_fnc=prewarm
         )
     )
