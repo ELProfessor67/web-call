@@ -5,3 +5,12 @@ python-dotenv
 requests>=2.32.0
 piper-tts>=1.2.0
 faster-whisper
+
+torch
+torchaudio
+transformers
+bitsandbytes
+snac
+soundfile
+numpy
+ 
