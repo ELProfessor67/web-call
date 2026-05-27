@@ -52,7 +52,7 @@ AUDIO_CODE_BASE_OFFSET = 128266
 _AUDIO_MAX = AUDIO_CODE_BASE_OFFSET + 7 * 4096
 
 # How long (chars) a single part can be before we split it further.
-MAX_PART_CHARS = 120
+MAX_PART_CHARS = 160
 
 
 def split_into_parts(text: str, max_chars: int = MAX_PART_CHARS) -> list[str]:
@@ -234,15 +234,32 @@ class _VeenaChunkedStream(tts.ChunkedStream):
 
         loop = asyncio.get_running_loop()
         start = time.perf_counter()
+        aq: asyncio.Queue = asyncio.Queue()
 
-        # Synthesize each part in a thread (GPU work is blocking), push in order.
-        for idx, part in enumerate(parts):
-            pcm = await loop.run_in_executor(None, engine.synth_part, part, voice)
-            if idx == 0:
+        # Producer thread: generate parts back-to-back and hand PCM to the loop.
+        # This keeps the GPU busy on part N+1 while LiveKit plays part N,
+        # so there are no idle gaps between parts.
+        def _produce():
+            try:
+                for part in parts:
+                    pcm = engine.synth_part(part, voice)
+                    loop.call_soon_threadsafe(aq.put_nowait, pcm)
+            finally:
+                loop.call_soon_threadsafe(aq.put_nowait, None)
+
+        threading.Thread(target=_produce, daemon=True).start()
+
+        first = True
+        while True:
+            pcm = await aq.get()
+            if pcm is None:
+                break
+            if first:
                 logger.debug(
                     f"Veena first-part [{voice}]: "
-                    f"{(time.perf_counter()-start)*1000:.0f}ms ('{part[:30]}...')"
+                    f"{(time.perf_counter()-start)*1000:.0f}ms"
                 )
+                first = False
             if pcm:
                 emitter.push(pcm)
 
