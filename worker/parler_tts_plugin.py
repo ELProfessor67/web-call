@@ -130,7 +130,6 @@ class _ParlerEngine:
         self.model = ParlerTTSForConditionalGeneration.from_pretrained(
             MODEL_ID,
             quantization_config=quant_cfg,
-            device_map="auto",
         )
         self.model.eval()
         self.tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
