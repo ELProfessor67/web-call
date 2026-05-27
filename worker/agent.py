@@ -18,6 +18,7 @@ from stt import FasterWhisperSTT
 from tts import PiperTTS
 from veena_tts import VeenaTTS
 from parler_tts_plugin import ParlerTTS
+from parler_tts_plugin import _ParlerEngine
 
 load_dotenv()
 logger = logging.getLogger("outbound-agent")
@@ -35,6 +36,10 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 
 def prewarm(proc: JobProcess):
     proc.userdata["vad"] = silero.VAD.load()
+    # Pre-load the Parler TTS model so it doesn't block the async entrypoint
+    logger.info("Preloading Parler TTS engine...")
+    _ParlerEngine.get()
+    logger.info("Parler TTS engine preloaded.")
 
 
 async def entrypoint(ctx: JobContext):

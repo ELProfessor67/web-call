@@ -271,6 +271,7 @@ class _VeenaChunkedStream(tts.ChunkedStream):
                 first = False
             if pcm:
                 emitter.push(pcm)
+        emitter.flush()
 
 
 class VeenaTTS(tts.TTS):

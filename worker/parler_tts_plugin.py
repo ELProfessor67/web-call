@@ -193,8 +193,8 @@ class _ParlerChunkedStream(tts.ChunkedStream):
         engine = self._parler._engine
         emitter.initialize(
             request_id=str(uuid.uuid4()),
-            sample_rate=engine.sample_rate,
-            num_channels=1,
+            sample_rate=self._parler.sample_rate,
+            num_channels=self._parler.num_channels,
             mime_type="audio/pcm",
         )
         voice = self._parler._voice
@@ -231,6 +231,7 @@ class _ParlerChunkedStream(tts.ChunkedStream):
                 first = False
             if pcm:
                 emitter.push(pcm)
+        emitter.flush()
 
 
 class ParlerTTS(tts.TTS):
@@ -243,13 +244,14 @@ class ParlerTTS(tts.TTS):
     """
 
     def __init__(self, voice: str = DEFAULT_VOICE) -> None:
-        self._engine = _ParlerEngine.get()
         super().__init__(
             capabilities=tts.TTSCapabilities(streaming=False),
-            sample_rate=self._engine.sample_rate,
+            sample_rate=44100,  # placeholder; overwritten once engine loads
             num_channels=1,
         )
         self._voice = voice if voice in KNOWN_VOICES else DEFAULT_VOICE
+        self._engine = _ParlerEngine.get()
+        self._opts.sample_rate = self._engine.sample_rate
         logger.info(f"ParlerTTS ready — voice={self._voice}")
 
     def synthesize(self, text, *, conn_options=None) -> tts.ChunkedStream:
