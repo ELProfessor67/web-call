@@ -17,7 +17,7 @@ from livekit.plugins import openai, deepgram, elevenlabs, silero
 from stt import FasterWhisperSTT
 from tts import PiperTTS
 from veena_tts import VeenaTTS
-from parler_tts import ParlerTTS
+from parler_tts_plugin import ParlerTTS
 
 load_dotenv()
 logger = logging.getLogger("outbound-agent")
