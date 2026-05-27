@@ -1,6 +1,7 @@
 import logging
 import os
 import json
+import time
 from dotenv import load_dotenv
 
 from livekit.agents import (
@@ -13,6 +14,7 @@ from livekit.agents import (
     ChatContext,
     RoomInputOptions,
 )
+from livekit.agents.metrics import LLMMetrics
 from livekit.plugins import openai, deepgram, elevenlabs, silero
 from stt import FasterWhisperSTT
 from tts import PiperTTS
@@ -105,6 +107,29 @@ async def entrypoint(ctx: JobContext):
             await self.session.generate_reply(
                 instructions="Greet the user. Say: Hello. I am connected and ready to help!"
             )
+
+    # ── Metrics logging ───────────────────────────────────────────────────────
+    turn_counter = 0
+
+    @llm_plugin.on("metrics_collected")
+    def on_llm_metrics(metrics: LLMMetrics):
+        nonlocal turn_counter
+        turn_counter += 1
+        logger.info(
+            f"📊 [LLM_METRICS] turn={turn_counter} | "
+            f"ttft={metrics.ttft * 1000:.0f}ms | "
+            f"input_tokens={metrics.input_tokens} | "
+            f"output_tokens={metrics.output_tokens} | "
+            f"tokens_per_sec={metrics.tokens_per_second:.1f} | "
+            f"duration={metrics.duration * 1000:.0f}ms"
+        )
+        logger.info(
+            f"⚡ [PIPELINE_SUMMARY] turn={turn_counter} | "
+            f"LLM_TTFT={metrics.ttft * 1000:.0f}ms | "
+            f"LLM_total={metrics.duration * 1000:.0f}ms | "
+            f"tokens_in={metrics.input_tokens} | "
+            f"tokens_out={metrics.output_tokens}"
+        )
 
     # ── AgentSession ──────────────────────────────────────────────────────────
     session = AgentSession(

@@ -89,7 +89,14 @@ class _PiperChunkedStream(tts.ChunkedStream):
         )
         elapsed_ms = (time.perf_counter() - start_time) * 1000
 
-        logger.debug(f"TTS latency: {elapsed_ms:.0f}ms for {len(self._input_text)} chars")
+        # Calculate chars-per-second throughput
+        cps = len(self._input_text) / (elapsed_ms / 1000) if elapsed_ms > 0 else 0
+
+        logger.info(
+            f"📊 [TTS_METRICS] latency={elapsed_ms:.0f}ms | "
+            f"chars={len(self._input_text)} | "
+            f"throughput={cps:.0f} chars/s"
+        )
 
         emitter.push(audio_bytes)
 
@@ -212,7 +219,7 @@ class PiperTTS(tts.TTS):
         if conn_options is None:
             conn_options = APIConnectOptions()
 
-        logger.debug(f"Synthesizing ({len(text)} chars): {text[:50]}...")
+        logger.info(f"🔊 [TTS] Synthesizing ({len(text)} chars): {text[:80]}...")
 
         return _PiperChunkedStream(
             tts_plugin=self,

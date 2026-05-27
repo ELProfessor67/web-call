@@ -158,10 +158,19 @@ class FasterWhisperSTT(stt.STT):
         text = "".join(segment.text for segment in segments).strip()
         elapsed_ms = (time.perf_counter() - start_time) * 1000
 
-        if text:
-            logger.debug(f"Transcribed ({info.language}, {info.duration:.1f}s): {text}")
+        # Calculate real-time factor (lower = faster than real-time)
+        rtf = (elapsed_ms / 1000) / info.duration if info.duration > 0 else 0
 
-        logger.debug(f"STT latency: {elapsed_ms:.0f}ms for {info.duration:.1f}s audio")
+        if text:
+            logger.info(f"📝 [STT] Transcribed ({info.language}, {info.duration:.1f}s): {text}")
+
+        logger.info(
+            f"📊 [STT_METRICS] latency={elapsed_ms:.0f}ms | "
+            f"audio_duration={info.duration:.1f}s | "
+            f"RTF={rtf:.2f} | "
+            f"language={info.language} | "
+            f"chars={len(text)}"
+        )
 
         return stt.SpeechEvent(
             type=stt.SpeechEventType.FINAL_TRANSCRIPT,
