@@ -1,29 +1,23 @@
 """
-Veena TTS Plugin for LiveKit Agents (in-process, streaming)
-===========================================================
+Veena TTS Plugin for LiveKit Agents (in-process, sentence/part chunking)
+========================================================================
 
-Local Hindi/English TTS using Veena (Maya Research). The model is loaded
-ONCE inside the agent worker process — no separate server.
+Local Hindi/English TTS using Veena (Maya Research). Model loads ONCE inside
+the agent worker process — no separate server.
 
-STREAMING:
-  Veena emits audio tokens in groups of 7 (= one SNAC frame). We run
-  generation with a token streamer and, every few frames, decode with SNAC
-  and push to LiveKit immediately. So the first audio plays long before the
-  full reply is finished generating.
+LATENCY APPROACH (NOT frame streaming — that sounded choppy):
+  We split the incoming text into small "parts" (sentences, and long
+  sentences further split on commas/clauses). Each part is synthesized fully
+  with SNAC (clean, smooth audio) and pushed as soon as it's ready. Because
+  the first part is short, it plays quickly; the rest follow seamlessly.
 
 Voice is chosen once at construction:  kavya | agastya | maitri | vinaya
-
-Usage:
-    >>> from veena_tts import VeenaTTS
-    >>> tts = VeenaTTS(voice="kavya")            # loads model (slow, once)
-    >>> session = AgentSession(stt=..., llm=..., tts=tts)
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
-import queue
+import re
 import threading
 import time
 import uuid
@@ -57,6 +51,70 @@ END_OF_AI_TOKEN       = 128262
 AUDIO_CODE_BASE_OFFSET = 128266
 _AUDIO_MAX = AUDIO_CODE_BASE_OFFSET + 7 * 4096
 
+# How long (chars) a single part can be before we split it further.
+MAX_PART_CHARS = 120
+
+
+def split_into_parts(text: str, max_chars: int = MAX_PART_CHARS) -> list[str]:
+    """
+    Break text into small synthesizable parts.
+
+    1) Split on sentence enders (Hindi danda '।', '?', '!', '.').
+    2) Any sentence still longer than max_chars is split on clause marks
+       (commas, semicolons, Hindi/Eng) and, if still too long, on spaces.
+    """
+    text = text.strip()
+    if not text:
+        return []
+
+    # 1) sentences — keep the ender attached
+    sentences = re.findall(r'[^।.?!]+[।.?!]?', text)
+    sentences = [s.strip() for s in sentences if s.strip()]
+
+    parts: list[str] = []
+    for sent in sentences:
+        if len(sent) <= max_chars:
+            parts.append(sent)
+            continue
+        # 2) split long sentence on clause marks
+        clauses = re.split(r'(?<=[,;:।])\s+', sent)
+        buf = ""
+        for cl in clauses:
+            cl = cl.strip()
+            if not cl:
+                continue
+            if len(cl) > max_chars:
+                # 3) hard-split very long clause on spaces
+                for chunk in _split_on_spaces(cl, max_chars):
+                    if buf:
+                        parts.append(buf); buf = ""
+                    parts.append(chunk)
+                continue
+            if len(buf) + len(cl) + 1 <= max_chars:
+                buf = f"{buf} {cl}".strip()
+            else:
+                if buf:
+                    parts.append(buf)
+                buf = cl
+        if buf:
+            parts.append(buf)
+    return parts
+
+
+def _split_on_spaces(s: str, max_chars: int) -> list[str]:
+    words = s.split()
+    out, buf = [], ""
+    for w in words:
+        if len(buf) + len(w) + 1 <= max_chars:
+            buf = f"{buf} {w}".strip()
+        else:
+            if buf:
+                out.append(buf)
+            buf = w
+    if buf:
+        out.append(buf)
+    return out
+
 
 class _VeenaEngine:
     """Holds the model + SNAC. Loaded once and shared by all streams."""
@@ -78,7 +136,7 @@ class _VeenaEngine:
         self.tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
         self.snac = SNAC.from_pretrained("hubertsiuzdak/snac_24khz").eval().cuda()
         self._snac_dev = next(self.snac.parameters()).device
-        self._gen_lock = threading.Lock()   # serialize GPU generation across streams
+        self._gen_lock = threading.Lock()   # serialize GPU work across streams
         logger.info("Veena ready.")
         self._warmup()
 
@@ -90,31 +148,15 @@ class _VeenaEngine:
 
     def _warmup(self) -> None:
         try:
-            for _ in self.stream_pcm("नमस्ते", DEFAULT_VOICE):
-                pass
+            self.synth_part("नमस्ते", DEFAULT_VOICE)
             logger.info("Warmup done.")
         except Exception as e:
             logger.warning(f"Warmup skipped: {e}")
 
-    def _decode_frame(self, seven):
-        """Decode exactly 7 audio tokens (one SNAC frame) -> float audio chunk."""
-        off = [AUDIO_CODE_BASE_OFFSET + i * 4096 for i in range(7)]
-        lvl0 = [seven[0] - off[0]]
-        lvl1 = [seven[1] - off[1], seven[4] - off[4]]
-        lvl2 = [seven[2] - off[2], seven[3] - off[3],
-                seven[5] - off[5], seven[6] - off[6]]
-        codes = []
-        for c in (lvl0, lvl1, lvl2):
-            t = torch.tensor(c, dtype=torch.int32, device=self._snac_dev).unsqueeze(0)
-            if torch.any((t < 0) | (t > 4095)):
-                return None
-            codes.append(t)
-        with torch.no_grad():
-            audio = self.snac.decode(codes)
-        return audio.squeeze().clamp(-1, 1).cpu().numpy()
-
-    def stream_pcm(self, text, voice, temperature=0.4, top_p=0.9):
-        """Generator yielding int16 PCM bytes as SNAC frames become ready."""
+    @torch.no_grad()
+    def synth_part(self, text: str, voice: str,
+                   temperature: float = 0.4, top_p: float = 0.9) -> bytes:
+        """Synthesize ONE short part fully -> int16 PCM bytes (clean audio)."""
         if voice not in VOICES:
             voice = DEFAULT_VOICE
 
@@ -125,69 +167,48 @@ class _VeenaEngine:
         input_ids = torch.tensor([input_tokens], device=self.model.device)
         max_tokens = min(int(len(text) * 1.3) * 7 + 21, 700)
 
-        # Lightweight custom streamer that hands us RAW token ids as they're made.
-        raw_q = queue.Queue()
+        with self._gen_lock:
+            output = self.model.generate(
+                input_ids, max_new_tokens=max_tokens, do_sample=True,
+                temperature=temperature, top_p=top_p, repetition_penalty=1.05,
+                pad_token_id=self.tokenizer.pad_token_id,
+                eos_token_id=[END_OF_SPEECH_TOKEN, END_OF_AI_TOKEN],
+            )
 
-        class _IdStreamer:
-            def put(self, value):
-                try:
-                    ids = value.view(-1).tolist()
-                except AttributeError:
-                    ids = list(value)
-                for tid in ids:
-                    raw_q.put(tid)
-            def end(self):
-                raw_q.put(None)
-
-        gen_kwargs = dict(
-            input_ids=input_ids,
-            max_new_tokens=max_tokens,
-            do_sample=True,
-            temperature=temperature,
-            top_p=top_p,
-            repetition_penalty=1.05,
-            pad_token_id=self.tokenizer.pad_token_id,
-            eos_token_id=[END_OF_SPEECH_TOKEN, END_OF_AI_TOKEN],
-            streamer=_IdStreamer(),
-        )
-
-        def _generate():
-            with self._gen_lock, torch.no_grad():
-                self.model.generate(**gen_kwargs)
-
-        threading.Thread(target=_generate, daemon=True).start()
-
-        buf = []                 # rolling buffer of 7 audio tokens
-        frames = []              # decoded frames awaiting flush
-        FLUSH_EVERY = 4          # batch a few frames per chunk (latency/quality balance)
-        skip_prompt = len(input_tokens)
-        seen = 0
-
-        while True:
-            tid = raw_q.get()
-            if tid is None:
-                break
-            # the streamer echoes prompt ids first; skip them
-            if seen < skip_prompt:
-                seen += 1
-                continue
-            if AUDIO_CODE_BASE_OFFSET <= tid < _AUDIO_MAX:
-                buf.append(tid)
-                if len(buf) == 7:
-                    chunk = self._decode_frame(buf)
-                    buf = []
-                    if chunk is not None:
-                        frames.append(chunk)
-                        if len(frames) >= FLUSH_EVERY:
-                            yield self._to_pcm16(frames)
-                            frames = []
-        if frames:
-            yield self._to_pcm16(frames)
-
-    @staticmethod
-    def _to_pcm16(frames):
-        audio = np.concatenate(frames)
+        gen = output[0][len(input_tokens):].tolist()
+        snac_tokens = [t for t in gen if AUDIO_CODE_BASE_OFFSET <= t < _AUDIO_MAX]
+        if not snac_tokens:
+            return b""
+        audio = self._decode_snac(snac_tokens)
+        if audio is None:
+            return b""
         return (np.clip(audio, -1.0, 1.0) * 32767.0).astype(np.int16).tobytes()
+
+    def _decode_snac(self, snac_tokens):
+        if not snac_tokens or len(snac_tokens) % 7 != 0:
+            # drop trailing partial frame
+            snac_tokens = snac_tokens[: len(snac_tokens) - (len(snac_tokens) % 7)]
+            if not snac_tokens:
+                return None
+        off = [AUDIO_CODE_BASE_OFFSET + i * 4096 for i in range(7)]
+        lvl = [[], [], []]
+        for i in range(0, len(snac_tokens), 7):
+            lvl[0].append(snac_tokens[i]     - off[0])
+            lvl[1].append(snac_tokens[i + 1] - off[1])
+            lvl[1].append(snac_tokens[i + 4] - off[4])
+            lvl[2].append(snac_tokens[i + 2] - off[2])
+            lvl[2].append(snac_tokens[i + 3] - off[3])
+            lvl[2].append(snac_tokens[i + 5] - off[5])
+            lvl[2].append(snac_tokens[i + 6] - off[6])
+        codes = []
+        for c in lvl:
+            t = torch.tensor(c, dtype=torch.int32, device=self._snac_dev).unsqueeze(0)
+            if torch.any((t < 0) | (t > 4095)):
+                return None
+            codes.append(t)
+        with torch.no_grad():
+            audio = self.snac.decode(codes)
+        return audio.squeeze().clamp(-1, 1).cpu().numpy()
 
 
 class _VeenaChunkedStream(tts.ChunkedStream):
@@ -196,6 +217,8 @@ class _VeenaChunkedStream(tts.ChunkedStream):
         self._veena = tts_plugin
 
     async def _run(self, emitter: "AudioEmitter") -> None:
+        import asyncio
+
         emitter.initialize(
             request_id=str(uuid.uuid4()),
             sample_rate=self._veena.sample_rate,
@@ -204,38 +227,29 @@ class _VeenaChunkedStream(tts.ChunkedStream):
         )
         engine = self._veena._engine
         voice = self._veena._voice
-        text = self._input_text
-        start = time.perf_counter()
-        first_logged = False
+
+        parts = split_into_parts(self._input_text)
+        if not parts:
+            return
 
         loop = asyncio.get_running_loop()
-        aq: asyncio.Queue = asyncio.Queue()
+        start = time.perf_counter()
 
-        def _produce():
-            try:
-                for pcm in engine.stream_pcm(text, voice):
-                    loop.call_soon_threadsafe(aq.put_nowait, pcm)
-            finally:
-                loop.call_soon_threadsafe(aq.put_nowait, None)
-
-        threading.Thread(target=_produce, daemon=True).start()
-
-        while True:
-            pcm = await aq.get()
-            if pcm is None:
-                break
-            if not first_logged:
+        # Synthesize each part in a thread (GPU work is blocking), push in order.
+        for idx, part in enumerate(parts):
+            pcm = await loop.run_in_executor(None, engine.synth_part, part, voice)
+            if idx == 0:
                 logger.debug(
-                    f"Veena first-audio [{voice}]: "
-                    f"{(time.perf_counter()-start)*1000:.0f}ms"
+                    f"Veena first-part [{voice}]: "
+                    f"{(time.perf_counter()-start)*1000:.0f}ms ('{part[:30]}...')"
                 )
-                first_logged = True
-            emitter.push(pcm)
+            if pcm:
+                emitter.push(pcm)
 
 
 class VeenaTTS(tts.TTS):
     """
-    In-process Veena TTS. Loads the model on first construction.
+    In-process Veena TTS with sentence/part chunking.
 
     Args:
         voice: kavya | agastya | maitri | vinaya (set once; unknown -> kavya).
@@ -248,7 +262,7 @@ class VeenaTTS(tts.TTS):
             num_channels=1,
         )
         self._voice = voice if voice in VOICES else DEFAULT_VOICE
-        self._engine = _VeenaEngine.get()   # load (or reuse) the model
+        self._engine = _VeenaEngine.get()
         logger.info(f"VeenaTTS ready — voice={self._voice}")
 
     def synthesize(self, text, *, conn_options=None) -> tts.ChunkedStream:
