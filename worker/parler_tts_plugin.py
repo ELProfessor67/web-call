@@ -243,14 +243,13 @@ class ParlerTTS(tts.TTS):
     """
 
     def __init__(self, voice: str = DEFAULT_VOICE) -> None:
+        self._engine = _ParlerEngine.get()
         super().__init__(
             capabilities=tts.TTSCapabilities(streaming=False),
-            sample_rate=44100,  # placeholder; overwritten once engine loads
+            sample_rate=self._engine.sample_rate,
             num_channels=1,
         )
         self._voice = voice if voice in KNOWN_VOICES else DEFAULT_VOICE
-        self._engine = _ParlerEngine.get()
-        self._opts.sample_rate = self._engine.sample_rate
         logger.info(f"ParlerTTS ready — voice={self._voice}")
 
     def synthesize(self, text, *, conn_options=None) -> tts.ChunkedStream:
