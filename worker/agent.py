@@ -17,6 +17,7 @@ from livekit.plugins import openai, deepgram, elevenlabs, silero
 from stt import FasterWhisperSTT
 from tts import PiperTTS
 from veena_tts import VeenaTTS
+from parler_tts import ParlerTTS
 
 load_dotenv()
 logger = logging.getLogger("outbound-agent")
@@ -50,7 +51,7 @@ async def entrypoint(ctx: JobContext):
         "model": "llama3.2:1b",
         "stt_model": "medium",
         "language": "hi",
-        "voice": "kavya",
+        "voice": "Divya",
     }
 
     try:
@@ -94,8 +95,8 @@ async def entrypoint(ctx: JobContext):
     #     use_cuda=PIPER_USE_CUDA,
     # )
 
-    voice = call_context.get("voice", "kavya")
-    tts_plugin = VeenaTTS(voice=voice)
+    voice = call_context.get("voice", "Divya")
+    tts_plugin = ParlerTTS(voice=voice)
 
     # ── Agent definition ──────────────────────────────────────────────────────
     class OutboundAgent(Agent):
