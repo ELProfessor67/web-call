@@ -13,4 +13,4 @@ bitsandbytes
 snac
 soundfile
 numpy
- 
+accelerate 

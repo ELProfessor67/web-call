@@ -27,7 +27,7 @@ WHISPER_MODEL = os.getenv("WHISPER_MODEL", "medium")
 WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cuda")
 PIPER_MODEL_PATH = os.getenv("PIPER_MODEL_PATH", "")
 PIPER_USE_CUDA = os.getenv("PIPER_USE_CUDA", "false").lower() == "true"
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 
 
@@ -47,7 +47,7 @@ async def entrypoint(ctx: JobContext):
     call_context = {
         "prompt": "You are a helpful assistant.",
         "provider": "ollama",
-        "model": "llama3.1:8b",
+        "model": "llama3.2:1b",
         "stt_model": "medium",
         "language": "hi",
         "voice": "kavya",
@@ -66,7 +66,7 @@ async def entrypoint(ctx: JobContext):
 
     # ── LLM setup ────────────────────────────────────────────────────────────
     provider = call_context.get("provider", "ollama")
-    model_name = call_context.get("model", "llama3.1:8b")
+    model_name = call_context.get("model", "llama3.2:1b")
 
     if provider == "ollama":
         llm_plugin = openai.LLM.with_ollama(
@@ -75,7 +75,7 @@ async def entrypoint(ctx: JobContext):
         )
     else:
         llm_plugin = openai.LLM.with_ollama(
-            model="llama3.1:8b",
+            model="llama3.2:1b",
             base_url=OLLAMA_BASE_URL,
         )
 
