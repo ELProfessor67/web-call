@@ -55,8 +55,8 @@ async def entrypoint(ctx: JobContext):
         "provider": "ollama",
         "model": "llama3.2:1b",
         "stt_model": "medium",
-        "language": "hi",
-        "voice": "Divya",
+        "language": "en",
+        "voice": "/home/web-call/worker/voices/pratham/medium/hi_IN-pratham-medium.onnx",
     }
 
     try:
@@ -91,17 +91,18 @@ async def entrypoint(ctx: JobContext):
             model_size=call_context.get("stt_model"),
             device=WHISPER_DEVICE,
             compute_type="float16" if WHISPER_DEVICE == "cuda" else "int8",
+            language=call_context.get("language", "en"),
         )
 
     # ── TTS setup ─────────────────────────────────────────────────────────────
-    # voice_path = call_context.get("voice", "/voices/pratham/medium/hi_IN-pratham-medium.onnx")
-    # tts_plugin = PiperTTS(
-    #     model_path=voice_path,
-    #     use_cuda=PIPER_USE_CUDA,
-    # )
+    voice_path = call_context.get("voice", "/home/web-call/worker/voices/pratham/medium/hi_IN-pratham-medium.onnx")
+    tts_plugin = PiperTTS(
+        model_path=voice_path,
+        use_cuda=PIPER_USE_CUDA,
+    )
 
-    voice = call_context.get("voice", "Divya")
-    tts_plugin = ParlerTTS(voice=voice)
+    # voice = call_context.get("voice", "Divya")
+    # tts_plugin = ParlerTTS(voice=voice)
 
     # ── Agent definition ──────────────────────────────────────────────────────
     class OutboundAgent(Agent):

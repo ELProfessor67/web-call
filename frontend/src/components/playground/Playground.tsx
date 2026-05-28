@@ -61,30 +61,13 @@ export interface PlaygroundProps {
 const headerHeight = 56;
 
 const VOICES = [
-  { name: "Charlie", id: "IKne3meq5aSn9XLyUdCD" },
-  { name: "Will", id: "bIHbv24MWmeRgasZH58o" },
-  { name: "Laura", id: "FGY2WhTYpPnrIDTdsKH5" },
-  { name: "Roger", id: "CwhRBWXzGAHq8TQ4Fs17" },
-  { name: "Jessica", id: "cgSgspJ2msm6clMCkdW9" },
-  { name: "Aakash Aryan", id: "N2al4jd45e882svx17SU" },
-  { name: "Niraj", id: "zgqefOY5FPQ3bB7OZTVR" },
-  { name: "Monika", id: "1qEiC6qsybMkmnNdVMbK" },
-  { name: "Sara", id: "9cI5mhBtM4WtQ9Fo6jWQ" },
-  { name: "Simran", id: "TRnaQb7q41oL7sV0w6Bu" },
-  { name: "Ivana", id: "4NejU5DwQjevnR6mh3mb" },
-  { name: "simran-2", id: "1ea3IFhmSWgw8sJkSvfJ" },
-  { name: "mahesh", id: "LEWCqaZJ8aD94fSLZit1" },
-  { name: "amira", id: "p9NjjebAnYzjVeM5lTaj" },
+  { name: "Ryan", id: "/home/web-call/worker/voices/pratham/medium/en_US-ryan-high.onnx" },
 ];
 
 const MODELS = {
-  groq: [
-    "llama-3.3-70b-versatile",
-    "meta-llama/llama-4-scout-17b-16e-instruct"
-  ],
-  openrouter: [
-    "meta-llama/llama-4-maverick",
-    "openai/gpt-oss-120b"
+  ollama: [
+    "llama3.2:1b",
+    "qwen:14b"
   ]
 };
 
@@ -137,7 +120,7 @@ export default function Playground({
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) return { ...defaults, ...JSON.parse(saved) };
-    } catch {}
+    } catch { }
     return defaults;
   });
 
@@ -147,7 +130,7 @@ export default function Playground({
   //     SDK field so the SDK actually sends it in the POST body as
   //     `participant_metadata`. token.ts reads and parses it as call_context.
   useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(formData)); } catch {}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(formData)); } catch { }
     setTokenFetchOptions((prev) => ({
       ...prev,
       participantMetadata: JSON.stringify(formData),
@@ -309,13 +292,13 @@ export default function Playground({
     return (
       <div className="flex flex-col gap-4 p-6 bg-gray-100 rounded-lg w-full max-w-2xl mx-auto">
         <h2 className="text-xl font-semibold mb-4 text-gray-900">Call Configuration</h2>
-        
+
         <div className="flex flex-col gap-2">
           <label className="text-sm text-gray-700">System Prompt</label>
           <textarea
             className="bg-white border border-gray-700 rounded p-2 text-gray-900 h-32"
             value={formData.prompt}
-            onChange={(e) => setFormData({...formData, prompt: e.target.value})}
+            onChange={(e) => setFormData({ ...formData, prompt: e.target.value })}
           />
         </div>
 
@@ -325,7 +308,7 @@ export default function Playground({
             <select
               className="bg-white border border-gray-700 rounded p-2 text-gray-900"
               value={formData.provider}
-              onChange={(e) => setFormData({...formData, provider: e.target.value as "groq" | "openrouter", model: MODELS[e.target.value as "groq" | "openrouter"][0]})}
+              onChange={(e) => setFormData({ ...formData, provider: e.target.value as "groq" | "openrouter", model: MODELS[e.target.value as "groq" | "openrouter"][0] })}
             >
               <option value="groq">Groq</option>
               <option value="openrouter">OpenRouter</option>
@@ -337,7 +320,7 @@ export default function Playground({
             <select
               className="bg-white border border-gray-700 rounded p-2 text-gray-900"
               value={formData.model}
-              onChange={(e) => setFormData({...formData, model: e.target.value})}
+              onChange={(e) => setFormData({ ...formData, model: e.target.value })}
             >
               {MODELS[formData.provider as "groq" | "openrouter"].map(m => (
                 <option key={m} value={m}>{m}</option>
@@ -350,7 +333,7 @@ export default function Playground({
             <select
               className="bg-white border border-gray-700 rounded p-2 text-gray-900"
               value={formData.stt_model}
-              onChange={(e) => setFormData({...formData, stt_model: e.target.value})}
+              onChange={(e) => setFormData({ ...formData, stt_model: e.target.value })}
             >
               <option value="nova-2-general">Nova-2</option>
               <option value="nova-3-general">Nova-3</option>
@@ -362,7 +345,7 @@ export default function Playground({
             <select
               className="bg-white border border-gray-700 rounded p-2 text-gray-900"
               value={formData.language}
-              onChange={(e) => setFormData({...formData, language: e.target.value})}
+              onChange={(e) => setFormData({ ...formData, language: e.target.value })}
             >
               <option value="hi">Hindi (hi)</option>
               <option value="en">English (en)</option>
@@ -376,7 +359,7 @@ export default function Playground({
             <select
               className="bg-white border border-gray-700 rounded p-2 text-gray-900"
               value={formData.voice}
-              onChange={(e) => setFormData({...formData, voice: e.target.value})}
+              onChange={(e) => setFormData({ ...formData, voice: e.target.value })}
             >
               {VOICES.map(v => (
                 <option key={v.id} value={v.id}>{v.name}</option>
@@ -384,7 +367,7 @@ export default function Playground({
             </select>
           </div>
         </div>
-        
+
         <button
           className="mt-4 bg-orange-600 hover:bg-orange-500 text-gray-900 font-bold py-3 px-4 rounded transition-colors"
           onClick={startSession}
@@ -566,7 +549,7 @@ export default function Playground({
                     key,
                     value: String(value),
                   }))}
-                  onAttributesChange={() => {}}
+                  onAttributesChange={() => { }}
                   themeColor={config.settings.theme_color}
                   disabled={true}
                 />
@@ -652,10 +635,10 @@ export default function Playground({
                     trackRef={
                       localScreenTrack
                         ? {
-                            participant: session.room.localParticipant,
-                            publication: localScreenTrack,
-                            source: Track.Source.ScreenShare,
-                          }
+                          participant: session.room.localParticipant,
+                          publication: localScreenTrack,
+                          source: Track.Source.ScreenShare,
+                        }
                         : undefined
                     }
                   />
@@ -825,28 +808,28 @@ export default function Playground({
           style={{ minHeight: 0 }}
         >
           {connectionState === ConnectionState.Disconnected ? (
-             <div className="w-full flex items-center justify-center">
-               {configFormContent}
-             </div>
+            <div className="w-full flex items-center justify-center">
+              {configFormContent}
+            </div>
           ) : (
-             <>
-               <div className="flex-col grow basis-1/2 gap-4 h-full flex">
-                 <PlaygroundTile
-                   title="Agent Audio"
-                   className="w-full h-full grow"
-                   childrenClassName="justify-center"
-                 >
-                   {audioTileContent}
-                 </PlaygroundTile>
-               </div>
-               
-               <PlaygroundTile
-                 title="Live Chat"
-                 className="h-full grow basis-1/2 flex"
-               >
-                 {chatTileContent}
-               </PlaygroundTile>
-             </>
+            <>
+              <div className="flex-col grow basis-1/2 gap-4 h-full flex">
+                <PlaygroundTile
+                  title="Agent Audio"
+                  className="w-full h-full grow"
+                  childrenClassName="justify-center"
+                >
+                  {audioTileContent}
+                </PlaygroundTile>
+              </div>
+
+              <PlaygroundTile
+                title="Live Chat"
+                className="h-full grow basis-1/2 flex"
+              >
+                {chatTileContent}
+              </PlaygroundTile>
+            </>
           )}
         </div>
         <RoomAudioRenderer />
