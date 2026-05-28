@@ -77,7 +77,7 @@ async function createToken(request: TokenRequest) {
       ttl: "10m",
       // ✅ Metadata is set ONCE here with call_context embedded.
       // It is NEVER overwritten below.
-      // metadata: jwtMetadata,
+      metadata: jwtMetadata,
     },
   );
 

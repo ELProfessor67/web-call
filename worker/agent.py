@@ -13,12 +13,13 @@ from livekit.agents import (
     ChatContext,
     RoomInputOptions,
 )
-from livekit.plugins import openai, deepgram, elevenlabs, silero
+from livekit.plugins import openai, silero
+from livekit.agents import  MetricsCollectedEvent, UserStateChangedEvent, AgentStateChangedEvent
 from stt import FasterWhisperSTT
 from tts import PiperTTS
-from veena_tts import VeenaTTS
-from parler_tts_plugin import ParlerTTS
-from parler_tts_plugin import _ParlerEngine
+# from veena_tts import VeenaTTS
+# from parler_tts_plugin import ParlerTTS
+# from parler_tts_plugin import _ParlerEngine
 
 load_dotenv()
 logger = logging.getLogger("outbound-agent")
@@ -37,9 +38,9 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 def prewarm(proc: JobProcess):
     proc.userdata["vad"] = silero.VAD.load()
     # Pre-load the Parler TTS model so it doesn't block the async entrypoint
-    logger.info("Preloading Parler TTS engine...")
-    _ParlerEngine.get()
-    logger.info("Parler TTS engine preloaded.")
+    # logger.info("Preloading Parler TTS engine...")
+    # _ParlerEngine.get()
+    # logger.info("Parler TTS engine preloaded.")
 
 
 async def entrypoint(ctx: JobContext):
@@ -132,6 +133,33 @@ async def entrypoint(ctx: JobContext):
         #     participant=participant,  # link session to specific participant
         # ),
     )
+
+    #print latency etc here
+    transcription_delay = 0
+    llm_latency = 0
+    tts_latency = 0
+    @session.on("metrics_collected")
+    def metrics_collected(event: MetricsCollectedEvent):
+        if(event.type != "metrics_collected"):
+            return
+
+        global end_of_utterance_delay, llm_latency, tts_latency
+        try:
+            if(event.metrics.type == "eou_metrics"):
+                end_of_utterance_delay = event.metrics.end_of_utterance_delay
+
+            if(event.metrics.type == "llm_metrics"):
+                llm_latency = event.metrics.ttft
+
+            if(event.metrics.type == "tts_metrics"):
+                tts_latency = event.metrics.ttfb
+                logger.info(f"Latency: Transcription Delay: {end_of_utterance_delay}s")
+                logger.info(f"Latency: LLM {llm_latency}s")
+                logger.info(f"Latency: TTS {tts_latency}s")
+                logger.info(f"Latency: Total {end_of_utterance_delay + llm_latency + tts_latency}s")
+
+        except Exception as e:
+            pass
 
 
 if __name__ == "__main__":

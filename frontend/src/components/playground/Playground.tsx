@@ -110,11 +110,11 @@ export default function Playground({
     // Load persisted settings from localStorage on first render
     const defaults = {
       prompt: "You are a helpful assistant.",
-      provider: "groq",
-      model: "llama-3.3-70b-versatile",
-      stt_model: "nova-2-general",
-      language: "hi",
-      voice: "cgSgspJ2msm6clMCkdW9",
+      provider: "ollama",
+      model: "llama3.2:1b",
+      stt_model: "medium",
+      language: "en",
+      voice: "/home/web-call/worker/voices/pratham/medium/en_US-ryan-high.onnx",
     };
     if (typeof window === "undefined") return defaults;
     try {
@@ -308,10 +308,9 @@ export default function Playground({
             <select
               className="bg-white border border-gray-700 rounded p-2 text-gray-900"
               value={formData.provider}
-              onChange={(e) => setFormData({ ...formData, provider: e.target.value as "groq" | "openrouter", model: MODELS[e.target.value as "groq" | "openrouter"][0] })}
+              onChange={(e) => setFormData({ ...formData, provider: e.target.value as "ollama", model: (MODELS[e.target.value as keyof typeof MODELS] ?? [])[0] ?? "" })}
             >
-              <option value="groq">Groq</option>
-              <option value="openrouter">OpenRouter</option>
+              <option value="ollama">Ollama</option>
             </select>
           </div>
 
@@ -322,7 +321,7 @@ export default function Playground({
               value={formData.model}
               onChange={(e) => setFormData({ ...formData, model: e.target.value })}
             >
-              {MODELS[formData.provider as "groq" | "openrouter"].map(m => (
+              {(MODELS[formData.provider as keyof typeof MODELS] ?? []).map(m => (
                 <option key={m} value={m}>{m}</option>
               ))}
             </select>
@@ -335,8 +334,8 @@ export default function Playground({
               value={formData.stt_model}
               onChange={(e) => setFormData({ ...formData, stt_model: e.target.value })}
             >
-              <option value="nova-2-general">Nova-2</option>
-              <option value="nova-3-general">Nova-3</option>
+              <option value="medium">Medium</option>
+              <option value="small">Small</option>
             </select>
           </div>
 
