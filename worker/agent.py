@@ -99,7 +99,7 @@ async def entrypoint(ctx: JobContext):
     voice_path = call_context.get("voice", "/home/web-call/worker/voices/pratham/medium/hi_IN-pratham-medium.onnx")
     tts_plugin = PiperTTS(
         model_path=voice_path,
-        use_cuda=PIPER_USE_CUDA,
+        use_cuda=True,
     )
 
     # voice = call_context.get("voice", "Divya")
