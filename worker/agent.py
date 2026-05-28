@@ -143,7 +143,6 @@ async def entrypoint(ctx: JobContext):
         if(event.type != "metrics_collected"):
             return
 
-        global end_of_utterance_delay, llm_latency, tts_latency
         try:
             if(event.metrics.type == "eou_metrics"):
                 end_of_utterance_delay = event.metrics.end_of_utterance_delay
