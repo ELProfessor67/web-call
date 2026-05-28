@@ -62,6 +62,7 @@ const headerHeight = 56;
 
 const VOICES = [
   { name: "Ryan", id: "/home/web-call/worker/voices/pratham/medium/en_US-ryan-high.onnx" },
+  { name: "Prathum", id: "/home/web-call/worker/voices/pratham/medium/hi_IN-pratham-medium.onnx" },
 ];
 
 const MODELS = {

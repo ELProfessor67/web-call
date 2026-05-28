@@ -33,6 +33,7 @@ from typing import Literal
 
 import numpy as np
 from faster_whisper import WhisperModel
+from typing import Optional
 
 from livekit.agents import stt, APIConnectOptions, utils
 from livekit.agents.types import NOT_GIVEN, NotGivenOr
@@ -93,8 +94,9 @@ class FasterWhisperSTT(stt.STT):
         device: Device = "cuda",
         compute_type: ComputeType = "float16",
         language: str = "en",
-        beam_size: int = 5,
+        beam_size: int = 1,
         vad_filter: bool = True,
+        preloaded_model: Optional[WhisperModel] = None,
     ) -> None:
         super().__init__(
             capabilities=stt.STTCapabilities(
@@ -107,13 +109,16 @@ class FasterWhisperSTT(stt.STT):
         self._beam_size = beam_size
         self._vad_filter = vad_filter
 
-        logger.info(f"Loading FasterWhisper model: {model_size} on {device} ({compute_type})")
-
-        self._model = WhisperModel(
-            model_size,
-            device=device,
-            compute_type=compute_type
-        )
+        if preloaded_model is not None:
+            logger.info(f"Using preloaded FasterWhisper model (beam_size={beam_size})")
+            self._model = preloaded_model
+        else:
+            logger.info(f"Loading FasterWhisper model: {model_size} on {device} ({compute_type})")
+            self._model = WhisperModel(
+                model_size,
+                device=device,
+                compute_type=compute_type
+            )
 
         logger.info(f"FasterWhisper ready - language={language}, beam_size={beam_size}")
 
@@ -148,10 +153,10 @@ class FasterWhisperSTT(stt.STT):
         segments, info = self._model.transcribe(
             audio_data,
             beam_size=self._beam_size,
-            best_of=self._beam_size,
             temperature=0.0,  # Greedy decoding for consistency
             vad_filter=self._vad_filter,
             language=lang,
+            condition_on_previous_text=False,  # Prevent slow context accumulation
         )
 
         # Combine all segments into final text

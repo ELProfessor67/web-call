@@ -35,8 +35,10 @@ Example:
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import io
 import logging
+import re
 import time
 import uuid
 import wave
@@ -60,6 +62,9 @@ class _PiperChunkedStream(tts.ChunkedStream):
     and Piper's synchronous synthesis.
     """
 
+    # Regex to split on sentence boundaries: . ! ? and Hindi danda ।
+    _SENTENCE_RE = re.compile(r'(?<=[.!?।])\s+')
+
     def __init__(
         self,
         *,
@@ -71,7 +76,7 @@ class _PiperChunkedStream(tts.ChunkedStream):
         self._piper_tts = tts_plugin
 
     async def _run(self, emitter: AudioEmitter) -> None:
-        """Synthesize audio and emit it to LiveKit."""
+        """Synthesize audio sentence-by-sentence for lower perceived latency."""
         emitter.initialize(
             request_id=str(uuid.uuid4()),
             sample_rate=self._piper_tts.sample_rate,
@@ -79,19 +84,30 @@ class _PiperChunkedStream(tts.ChunkedStream):
             mime_type="audio/pcm",
         )
 
-        # Run blocking synthesis in thread pool
-        start_time = time.perf_counter()
+        # Split text into sentences for incremental synthesis
+        sentences = self._SENTENCE_RE.split(self._input_text)
+        sentences = [s.strip() for s in sentences if s.strip()]
+
+        # If splitting produced nothing, fall back to full text
+        if not sentences:
+            sentences = [self._input_text]
+
         loop = asyncio.get_running_loop()
-        audio_bytes = await loop.run_in_executor(
-            None,
-            self._synthesize_blocking,
-            self._input_text
-        )
-        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        total_start = time.perf_counter()
 
-        logger.debug(f"TTS latency: {elapsed_ms:.0f}ms for {len(self._input_text)} chars")
+        for i, sentence in enumerate(sentences):
+            start_time = time.perf_counter()
+            audio_bytes = await loop.run_in_executor(
+                self._piper_tts._executor,
+                self._synthesize_blocking,
+                sentence
+            )
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            logger.debug(f"TTS chunk {i+1}/{len(sentences)}: {elapsed_ms:.0f}ms for {len(sentence)} chars")
+            emitter.push(audio_bytes)
 
-        emitter.push(audio_bytes)
+        total_ms = (time.perf_counter() - total_start) * 1000
+        logger.debug(f"TTS total: {total_ms:.0f}ms for {len(self._input_text)} chars ({len(sentences)} chunks)")
 
     def _synthesize_blocking(self, text: str) -> bytes:
         """
@@ -188,6 +204,9 @@ class PiperTTS(tts.TTS):
         self.volume = volume
         self.noise_scale = noise_scale
         self.noise_w = noise_w
+
+        # Dedicated thread pool for TTS synthesis to avoid contention
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="piper-tts")
 
         logger.info(f"Loading Piper voice: {model_path} (CUDA: {use_cuda})")
         self.voice = PiperVoice.load(model_path, use_cuda=use_cuda)

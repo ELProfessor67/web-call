@@ -14,7 +14,8 @@ from livekit.agents import (
     RoomInputOptions,
 )
 from livekit.plugins import openai, silero
-from livekit.agents import  MetricsCollectedEvent, UserStateChangedEvent, AgentStateChangedEvent
+from livekit.agents import MetricsCollectedEvent, UserStateChangedEvent, AgentStateChangedEvent
+from faster_whisper import WhisperModel
 from stt import FasterWhisperSTT
 from tts import PiperTTS
 # from veena_tts import VeenaTTS
@@ -36,11 +37,18 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 
 
 def prewarm(proc: JobProcess):
-    proc.userdata["vad"] = silero.VAD.load()
-    # Pre-load the Parler TTS model so it doesn't block the async entrypoint
-    # logger.info("Preloading Parler TTS engine...")
-    # _ParlerEngine.get()
-    # logger.info("Parler TTS engine preloaded.")
+    proc.userdata["vad"] = silero.VAD.load(
+        min_silence_duration=0.3,  # 300ms instead of default ~500ms for faster response
+        speech_pad_ms=30,          # Less padding around speech
+    )
+    # Pre-load the Whisper STT model so first call doesn't have cold-start
+    logger.info("Preloading FasterWhisper model...")
+    proc.userdata["whisper_model"] = WhisperModel(
+        WHISPER_MODEL,
+        device=WHISPER_DEVICE,
+        compute_type="float16" if WHISPER_DEVICE == "cuda" else "int8",
+    )
+    logger.info("FasterWhisper model preloaded.")
 
 
 async def entrypoint(ctx: JobContext):
@@ -89,10 +97,12 @@ async def entrypoint(ctx: JobContext):
     # ── STT setup ─────────────────────────────────────────────────────────────
     
     stt_plugin = FasterWhisperSTT(
-            model_size=call_context.get("stt_model"),
+            model_size=call_context.get("stt_model", WHISPER_MODEL),
             device=WHISPER_DEVICE,
             compute_type="float16" if WHISPER_DEVICE == "cuda" else "int8",
             language=call_context.get("language", "en"),
+            beam_size=1,  # Greedy decoding for lowest latency
+            preloaded_model=ctx.proc.userdata.get("whisper_model"),
         )
 
     # ── TTS setup ─────────────────────────────────────────────────────────────
@@ -108,8 +118,11 @@ async def entrypoint(ctx: JobContext):
     # ── Agent definition ──────────────────────────────────────────────────────
     class OutboundAgent(Agent):
         def __init__(self) -> None:
+            # Add conciseness instruction to reduce LLM generation time
+            base_prompt = call_context.get("prompt", "You are a helpful assistant.")
+            optimized_prompt = base_prompt + "\nKeep responses concise and under 2 sentences unless asked for detail."
             super().__init__(
-                instructions=call_context.get("prompt", "You are a helpful assistant."),
+                instructions=optimized_prompt,
             )
 
         async def on_enter(self) -> None:
@@ -124,6 +137,7 @@ async def entrypoint(ctx: JobContext):
         stt=stt_plugin,
         llm=llm_plugin,
         tts=tts_plugin,
+        min_endpointing_delay=0.3,  # Respond faster after user stops speaking
     )
 
     await session.start(
@@ -135,30 +149,32 @@ async def entrypoint(ctx: JobContext):
     )
 
     #print latency etc here
-    transcription_delay = 0
-    llm_latency = 0
-    tts_latency = 0
+    _eou_delay = 0.0
+    _llm_ttft = 0.0
+    _tts_ttfb = 0.0
+
     @session.on("metrics_collected")
     def metrics_collected(event: MetricsCollectedEvent):
-        if(event.type != "metrics_collected"):
+        nonlocal _eou_delay, _llm_ttft, _tts_ttfb
+        if event.type != "metrics_collected":
             return
 
         try:
-            if(event.metrics.type == "eou_metrics"):
-                end_of_utterance_delay = event.metrics.end_of_utterance_delay
+            if event.metrics.type == "eou_metrics":
+                _eou_delay = event.metrics.end_of_utterance_delay
 
-            if(event.metrics.type == "llm_metrics"):
-                llm_latency = event.metrics.ttft
+            if event.metrics.type == "llm_metrics":
+                _llm_ttft = event.metrics.ttft
 
-            if(event.metrics.type == "tts_metrics"):
-                tts_latency = event.metrics.ttfb
-                logger.info(f"Latency: Transcription Delay: {end_of_utterance_delay}s")
-                logger.info(f"Latency: LLM {llm_latency}s")
-                logger.info(f"Latency: TTS {tts_latency}s")
-                logger.info(f"Latency: Total {end_of_utterance_delay + llm_latency + tts_latency}s")
+            if event.metrics.type == "tts_metrics":
+                _tts_ttfb = event.metrics.ttfb
+                logger.info(f"Latency: EOU Delay: {_eou_delay:.3f}s")
+                logger.info(f"Latency: LLM TTFT: {_llm_ttft:.3f}s")
+                logger.info(f"Latency: TTS TTFB: {_tts_ttfb:.3f}s")
+                logger.info(f"Latency: Total: {_eou_delay + _llm_ttft + _tts_ttfb:.3f}s")
 
         except Exception as e:
-            pass
+            logger.debug(f"Metrics error: {e}")
 
 
 if __name__ == "__main__":
