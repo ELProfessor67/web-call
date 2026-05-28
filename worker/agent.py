@@ -38,8 +38,10 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 
 def prewarm(proc: JobProcess):
     proc.userdata["vad"] = silero.VAD.load(
-        min_silence_duration=0.3,  # 300ms instead of default ~500ms for faster response
-        speech_pad_ms=30,          # Less padding around speech
+        min_speech_duration = 0.1,
+        min_silence_duration = 0.1,
+        activation_threshold = 0.5,
+        force_cpu = True,
     )
     # Pre-load the Whisper STT model so first call doesn't have cold-start
     logger.info("Preloading FasterWhisper model...")
